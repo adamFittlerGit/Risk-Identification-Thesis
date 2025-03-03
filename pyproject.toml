@@ -1,0 +1,23 @@
+[project]
+name = "risk-identification-thesis"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "adam",email = "fittleradam@gmail.com"}
+]
+package-mode = false
+requires-python = ">=3.10,<4.0"
+dependencies = [
+    "ultralytics",  # For YOLO model
+    "langchain",    # For language model processing
+    "torch",        # PyTorch for model inference
+    "opencv-python",# For image processing
+    "numpy",         # For numerical operations
+    "langchain-mistralai (>=0.2.7,<0.3.0)",
+    "langchain-openai (>=0.3.7,<0.4.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
