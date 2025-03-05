@@ -48,6 +48,15 @@ def initialise_graph(documents):
     graph.add_graph_documents(documents, include_source=True, baseEntityLabel=True)
     return graph
 
+def get_graph():
+    graph = Neo4jGraph(
+        url="bolt://localhost:7687",
+        username="neo4j",
+        password="password",
+        enhanced_schema=True,
+    )
+    return graph
+
 def initialise_model(llm: str):
     print(f"initialising model: {llm}")
     if llm == "mistral":
@@ -59,16 +68,16 @@ def initialise_model(llm: str):
     print(f"model initialised: {chat_model}")
     return chat_model
     
-def initialise_prompt(entities):
+def initialise_prompt(entities, documents=None):
     # System prompt
     sys_prompt = """You are a helpful assistant that takes the output of an object detector (consisting of entities and their positions) and generates a risk register. We are interested in promoting native rehabilitation of the land. Only identify negative risks caused by weeds.
-                    Analyse the spatial relationships between the entities in the image using their bounding box positions. Identify potential risks based on interactions if they exist (e.g., proximity, overlap, or contextual patterns) between pairs of entities. Return the risks in a JSON-like format as a dictionary with a key "risks" containing a list of dictionaries, each representing a risk with the following keys:
+                    Analyse the spatial relationships between the entities in the image using their relative positions. Identify potential risks based on interactions if they exist (e.g., proximity, overlap, or contextual patterns) between pairs of entities. Return the risks in a JSON-like format as a dictionary with a key "risks" containing a list of dictionaries, each representing a risk with the following keys:
                     
                     - "risk_id": Unique identifier for the risk.
                     - "risk_type": Type of risk, e.g., Growth, Competition, Propagation.
                     - "associated_entities": A single string listing the interacting entities by class and id, e.g., "Entity 1 (Weed) & Entity 2 (Water)".
                     - "assessment": Description of the possible interactions causing the risks and the likelihood of the risk occurring based on the spatial relationships between the entities.
-                    - "justification": Reference to a supporting article/rule provided that was used to justify the risk assessment.
+                    - "justification": Reference to a supporting article/rule provided that was used to justify the risk assessment. Relevent documents will be provided prior to the entities if necessary. 
 
                     **Example Output:**
                     {{
@@ -96,9 +105,27 @@ def initialise_prompt(entities):
     print(f"initialising prompt")
     prompt = ChatPromptTemplate.from_messages([
         ("system", sys_prompt),
+        ("user", "Documents: {documents}"),
         ("user", "Entities: {entities}"),
     ])
     return prompt
+
+def retrieve_documents(entities, graph):
+    chain = GraphCypherQAChain.from_llm(
+        llm=ChatOpenAI(temperature=0, model="gpt-4o-mini"),
+        graph=graph,
+        verbose=True,
+        validate_cypher=True,
+        allow_dangerous_requests=True,
+    )
+    entity_types = []
+    for entity in entities:
+        entity_types.append(entity["class"])
+        
+    query = "How do these entitites relate to each other: {entity_types}?"
+    result = chain.invoke({"query": query}) 
+    
+    return result
 
 def initialise_parser():
     parser = PydanticOutputParser(pydantic_object=RiskRegister)
@@ -122,5 +149,35 @@ def generate_risk_register(entities, llm):
     output = pipeline.invoke({"entities": entities})
     return output
 
-graph = initialise_graph(load_graph_docs())
-print(graph.schema)
+mock_entities = [
+    {
+        "id": 0,
+        "class": "parkinsonia",
+        "bbox": [150, 200, 50, 120],  # x, y, width, height
+        "interactions": [
+            "Distance between entity 0 (parkinsonia) and entity 1 (water) is 3.75 metres",
+            "Distance between entity 0 (parkinsonia) and entity 2 (native_plant) is 2.5 metres"
+        ]
+    },
+    {
+        "id": 1,
+        "class": "water",
+        "bbox": [300, 250, 200, 150],
+        "interactions": [
+            "Distance between entity 1 (water) and entity 0 (parkinsonia) is 3.75 metres",
+            "Distance between entity 1 (water) and entity 2 (native_plant) is 5.0 metres"
+        ]
+    },
+    {
+        "id": 2,
+        "class": "native_plant",
+        "bbox": [200, 300, 40, 30],
+        "interactions": [
+            "Distance between entity 2 (native_plant) and entity 0 (parkinsonia) is 2.5 metres",
+            "Distance between entity 2 (native_plant) and entity 1 (water) is 5.0 metres"
+        ]
+    }
+]
+
+test = retrieve_documents(mock_entities, get_graph())
+print(test)
